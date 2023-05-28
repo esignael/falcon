@@ -2,19 +2,21 @@
 Python implementation of Falcon:
 https://falcon-sign.info/.
 """
-from common import q
+import secrets as st
+from dataclasses import dataclass
+from .common import q
 from numpy import set_printoptions
 from math import sqrt
-from fft import fft, ifft, sub, neg, add_fft, mul_fft
-from ntt import sub_zq, mul_zq, div_zq
-from ffsampling import gram, ffldl_fft, ffsampling_fft
-from ntrugen import ntru_gen
-from encoding import compress, decompress
+from .fft import fft, ifft, sub, neg, add_fft, mul_fft
+from .ntt import sub_zq, mul_zq, div_zq
+from .ffsampling import gram, ffldl_fft, ffsampling_fft
+from .ntrugen import ntru_gen
+from .encoding import compress, decompress
 # https://pycryptodome.readthedocs.io/en/latest/src/hash/shake256.html
 from Crypto.Hash import SHAKE256
 # Randomness
 from os import urandom
-from rng import ChaCha20
+from .rng import ChaCha20
 # For debugging purposes
 import sys
 if sys.version_info >= (3, 4):
@@ -133,6 +135,7 @@ Params = {
 }
 
 
+
 def print_tree(tree, pref=""):
     """
     Display a LDL tree in a readable form.
@@ -242,6 +245,9 @@ class SecretKey:
         G0 = gram(B0)
         self.B0_fft = [[fft(elt) for elt in row] for row in B0]
         G0_fft = [[fft(elt) for elt in row] for row in G0]
+        print('new')
+        print(B0, G0, self.B0_fft, G0_fft)
+        print()
 
         self.T_fft = ffldl_fft(G0_fft)
 
@@ -290,6 +296,7 @@ class SecretKey:
                 hashed[i] = elt % q
                 i += 1
             j += 1
+        print('here', hashed)
         return hashed
 
     def sample_preimage(self, point, seed=None):
@@ -388,3 +395,87 @@ class SecretKey:
 
         # If all checks are passed, accept
         return True
+
+
+
+@dataclass
+class Falcon ():
+    n: int
+    sigma: float
+    sigmin: float
+    sig_bound: int
+    sig_bytelen: int
+
+    def __inter__ (self, sk):
+        f, g, F, G = sk
+        B0 = [[g, neg(f)], [G, neg(F)]]
+        G0 = gram(B0)
+        B0_fft = [[ fft(item) for item in row] for row in B0]
+        G0_fft = [[ fft(item) for item in row] for row in G0]
+        return B0, G0, B0_fft, G0_fft
+
+    def __preimage__ (self, point, sk, seed=None):
+        Q = 12 * 1024 + 1
+        b0, g0, B0, G0 = self.__inter__(sk)
+        (a, b), (c, d) = B0
+        point_fft = fft(point)
+        t0 = [(point_fft[i] * d[i]) / Q for i in range(self.n)]
+        t1 = [(-point_fft[i] * b[i]) / Q for i in range(self.n)]
+        t = [t0, t1]
+        T_fft = ffldl_fft(G0)
+        normalize_tree(T_fft, self.sigma)
+        chacha_prng = ChaCha20(seed)
+        z = ffsampling_fft(t, T_fft, self.sigmin, chacha_prng.randombytes)
+        V0 = add_fft(mul_fft(z[0], a), mul_fft(z[1], c))
+        V1 = add_fft(mul_fft(z[0], b), mul_fft(z[1], d))
+        v0 = [int(round(item)) for item in ifft(V0)]
+        v1 = [int(round(item)) for item in ifft(V1)]
+        return [sub(point, v0), neg(v1)]
+
+    def __point__ (self, message, salt):
+        Q = 12 * 1024 + 1
+        k = (1 << 16) // Q
+        shake = SHAKE256.new()
+        shake.update(salt)
+        shake.update(message)
+        hashed = [0] * self.n
+        i = 0
+        while i < self.n:
+            twobytes = shake.read(2)
+            item = (twobytes[0] << 8) + twobytes[1]
+            if item < k * Q:
+                hashed[i] = item % Q
+                i += 1
+        print('here', hashed)
+        return hashed
+
+
+    def keygen (self):
+        sk = ntru_gen(self.n)
+        # f, g, F, G = ntru_gen(self.n)
+        B, G, Bf, Gf = self.__inter__(sk)
+        T_fft = ffldl_fft(Gf)
+        normalize_tree(T_fft, self.sigma)
+        pk = div_zq(*sk[:2])
+        return pk, sk
+
+    def sign (self, sk, m):
+        int_header = 0x30 + logn[self.n]
+        header = int_header.to_bytes(1, 'little')
+
+        salt = st.token_bytes(SALT_LEN)
+        seed = st.token_bytes(SEED_LEN)
+        hashed = self.__point__ (m, salt)
+        while True:
+            s = self.__preimage__(hashed, sk, seed)
+            norm = sum(coef ** 2 for coef in s[0]) 
+            norm += sum(coef ** 2 for coef in s[1])
+            if norm <= self.sig_bound:
+                enc = compress(s[1], self.sig_bytelen - HEAD_LEN - SALT_LEN)
+                if enc is not False:
+                    return header + salt + enc
+
+
+
+Falcon2 = Falcon(**Params[2])
+
