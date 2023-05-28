@@ -479,4 +479,5 @@ class Falcon ():
 
 Falcon2 = Falcon(**Params[2])
 Falcon512 = Falcon(**Params[512])
+Falcon1024 = Falcon(**Params[1024])
 
