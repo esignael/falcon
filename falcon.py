@@ -478,6 +478,13 @@ class Falcon ():
 
 
 Falcon2 = Falcon(**Params[2])
+Falcon4 = Falcon(**Params[4])
+Falcon8 = Falcon(**Params[8])
+Falcon16 = Falcon(**Params[16])
+Falcon32 = Falcon(**Params[32])
+Falcon64 = Falcon(**Params[64])
+Falcon128 = Falcon(**Params[128])
+Falcon256 = Falcon(**Params[256])
 Falcon512 = Falcon(**Params[512])
 Falcon1024 = Falcon(**Params[1024])
 
