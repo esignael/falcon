@@ -446,7 +446,6 @@ class Falcon ():
             if item < k * Q:
                 hashed[i] = item % Q
                 i += 1
-        print('here', hashed)
         return hashed
 
 
@@ -456,7 +455,7 @@ class Falcon ():
         B, G, Bf, Gf = self.__inter__(sk)
         T_fft = ffldl_fft(Gf)
         normalize_tree(T_fft, self.sigma)
-        pk = div_zq(*sk[:2])
+        pk = div_zq(*sk[:2][::-1])
         return pk, sk
 
     def sign (self, sk, m):
@@ -475,6 +474,20 @@ class Falcon ():
                 if enc is not False:
                     return header + salt + enc
 
+    def verify (self, pk, m, sig):
+        Q = 12 * 1024 + 1
+        salt = sig[HEAD_LEN:HEAD_LEN + SALT_LEN]
+        enc_s = sig[HEAD_LEN + SALT_LEN:]
+        s1 = decompress(enc_s, self.sig_bytelen - HEAD_LEN - SALT_LEN, self.n)
+        assert s1
+        hashed = self.__point__(m, salt)
+        s0 = sub_zq(hashed, mul_zq(s1, pk))
+        s0 = [(coef + (Q >> 1)) % Q - (Q >> 1) for coef in s0]
+        norms = sum(coef ** 2 for coef in s0)
+        norms += sum(coef **2 for coef in s1)
+        if norms > self.sig_bound:
+            return False
+        return True
 
 
 Falcon2 = Falcon(**Params[2])
